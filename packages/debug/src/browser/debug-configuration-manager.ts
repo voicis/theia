@@ -79,10 +79,12 @@ export class DebugConfigurationManager {
     protected initialized: Promise<void>;
     @postConstruct()
     protected async init(): Promise<void> {
+        console.error('!!!!!!!!!!!!!!!!!!!!!!!! init ');
         this.debugConfigurationTypeKey = this.contextKeyService.createKey<string>('debugConfigurationType', undefined);
         this.initialized = this.updateModels();
         this.preferences.onPreferenceChanged(e => {
             if (e.preferenceName === 'launch') {
+                console.error('!!!!! init !!! onPreferenceChanged ');
                 this.updateModels();
             }
         });
@@ -90,10 +92,13 @@ export class DebugConfigurationManager {
 
     protected readonly models = new Map<string, DebugConfigurationModel>();
     protected updateModels = debounce(async () => {
+        console.error('!!! updateModels ');
         const roots = await this.workspaceService.roots;
+        console.error('!!! updateModels !!! roots ', roots);
         const toDelete = new Set(this.models.keys());
         for (const rootStat of roots) {
             const key = rootStat.resource.toString();
+            console.error('!!! updateModels !!! roots !!! root ', key);
             toDelete.delete(key);
             if (!this.models.has(key)) {
                 const model = new DebugConfigurationModel(key, this.preferences);
@@ -183,9 +188,13 @@ export class DebugConfigurationManager {
     }
 
     async openConfiguration(): Promise<void> {
+        console.error('++++++++++++++++++++++++++++ open');
         const { model } = this;
         if (model) {
+            console.error('+++ open +++ model ', model.uri);
             await this.doOpen(model);
+        } else {
+            console.error('+++ open +++ NO model');
         }
     }
     async addConfiguration(): Promise<void> {
@@ -235,24 +244,35 @@ export class DebugConfigurationManager {
     }
 
     protected get model(): DebugConfigurationModel | undefined {
+        console.error('*******************  MODEL ');
         const workspaceFolderUri = this.workspaceVariables.getWorkspaceRootUri();
+        console.error('*** MODEL *** workspacefolderuri ', workspaceFolderUri?.path);
         if (workspaceFolderUri) {
+            console.error('*** MODEL *** workspacefolderuri *** EXIST', workspaceFolderUri);
             const key = workspaceFolderUri.toString();
             for (const model of this.models.values()) {
+                console.error('*** MODEL ********** FOR ', model.uri?.path, ' /// ', model.workspaceFolderUri);
                 if (model.workspaceFolderUri === key) {
+                    console.error('*** MODEL *** RETURN_1 ', key, model.uri?.path);
                     return model;
                 }
             }
+        } else {
+            console.error('*** MODEL *** workspacefolderuri *** NOT EXIST', workspaceFolderUri);
         }
         for (const model of this.models.values()) {
+            console.error('*** MODEL ********** FOR2 ', model.uri);
             if (model.uri) {
+                console.error('*** MODEL *** RETURN_2 ', model.uri);
                 return model;
             }
         }
+        console.error('*** MODEL *** RETURN_3 ');
         return this.models.values().next().value;
     }
 
     protected async doOpen(model: DebugConfigurationModel): Promise<EditorWidget> {
+        console.error('+++++ doOpen ');
         let uri = model.uri;
         if (!uri) {
             uri = await this.doCreate(model);
