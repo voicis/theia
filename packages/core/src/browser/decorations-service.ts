@@ -44,7 +44,7 @@ export interface ResourceDecorationChangeEvent {
 export const DecorationsService = Symbol('DecorationsService');
 export interface DecorationsService {
 
-    readonly onDidChangeDecorations: Event<ResourceDecorationChangeEvent>;
+    readonly onDidChangeDecorations: Event<Map<string, Decoration>>;
 
     registerDecorationsProvider(provider: DecorationsProvider): Disposable;
 
@@ -61,31 +61,30 @@ class DecorationDataRequest {
 class DecorationProviderWrapper {
 
     readonly data: TernarySearchTree<URI, DecorationDataRequest | Decoration | undefined>;
+    readonly decorations: Map<string, Decoration> = new Map();
     private readonly disposable: Disposable;
 
     constructor(
         readonly provider: DecorationsProvider,
-        private readonly uriEmitter: Emitter<URI | URI[]>,
-        private readonly flushEmitter: Emitter<ResourceDecorationChangeEvent>
+        readonly onDidChangeDecorationsEmitter: Emitter<Map<string, Decoration>>
     ) {
 
         this.data = TernarySearchTree.forUris<DecorationDataRequest | Decoration | undefined>(true);
 
-        this.disposable = this.provider.onDidChange(uris => {
+        this.disposable = this.provider.onDidChange(async uris => {
+            this.decorations.clear();
             if (!uris) {
-                // flush event -> drop all data, can affect everything
                 this.data.clear();
-                this.flushEmitter.fire({ affectsResource(): boolean { return true; } });
-
             } else {
-                // selective changes -> drop for resource, fetch again, send event
-                // perf: the map stores thenables, decorations, or `null`-markers.
-                // we make us of that and ignore all uris in which we have never
-                // been interested.
                 for (const uri of uris) {
                     this.fetchData(new URI(uri.toString()));
+                    const decoration = await provider.provideDecorations(uri, CancellationToken.None);
+                    if (decoration) {
+                        this.decorations.set(uri.toString(), decoration);
+                    }
                 }
             }
+            this.onDidChangeDecorationsEmitter.fire(this.decorations);
         });
     }
 
@@ -168,11 +167,7 @@ class DecorationProviderWrapper {
 
     private keepItem(uri: URI, data: Decoration | undefined): Decoration | undefined {
         const deco = data ? data : undefined;
-        const old = this.data.set(uri, deco);
-        if (deco || old) {
-            // only fire event when something changed
-            this.uriEmitter.fire(uri);
-        }
+        this.data.set(uri, deco);
         return deco;
     }
 }
@@ -181,35 +176,24 @@ class DecorationProviderWrapper {
 export class DecorationsServiceImpl implements DecorationsService {
 
     private readonly data: DecorationProviderWrapper[] = [];
-    private readonly onDidChangeDecorationsDelayedEmitter = new Emitter<URI | URI[]>();
-    private readonly onDidChangeDecorationsEmitter = new Emitter<ResourceDecorationChangeEvent>();
+    private readonly onDidChangeDecorationsEmitter = new Emitter<Map<string, Decoration>>();
 
     readonly onDidChangeDecorations = this.onDidChangeDecorationsEmitter.event;
 
     dispose(): void {
         this.onDidChangeDecorationsEmitter.dispose();
-        this.onDidChangeDecorationsDelayedEmitter.dispose();
     }
 
     registerDecorationsProvider(provider: DecorationsProvider): Disposable {
 
-        const wrapper = new DecorationProviderWrapper(
-            provider,
-            this.onDidChangeDecorationsDelayedEmitter,
-            this.onDidChangeDecorationsEmitter
-        );
+        const wrapper = new DecorationProviderWrapper(provider, this.onDidChangeDecorationsEmitter);
         this.data.push(wrapper);
-
-        this.onDidChangeDecorationsEmitter.fire({
-            // everything might have changed
-            affectsResource(): boolean { return true; }
-        });
 
         return Disposable.create(() => {
             // fire event that says 'yes' for any resource
             // known to this provider. then dispose and remove it.
             this.data.splice(this.data.indexOf(wrapper), 1);
-            this.onDidChangeDecorationsEmitter.fire({ affectsResource: uri => wrapper.knowsAbout(new URI(uri.toString())) });
+            this.onDidChangeDecorationsEmitter.fire(new Map<string, Decoration>());
             wrapper.dispose();
         });
     }
