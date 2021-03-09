@@ -19,7 +19,7 @@ import { ContainerModule, interfaces } from 'inversify';
 import { ConnectionHandler, JsonRpcConnectionHandler, ILogger } from '@theia/core/lib/common';
 import { FileSystemWatcherServer, FileSystemWatcherService } from '../common/filesystem-watcher-protocol';
 import { FileSystemWatcherServerClient } from './filesystem-watcher-client';
-import { NsfwFileSystemWatcherService } from './nsfw-watcher/nsfw-filesystem-service';
+import { NsfwFileSystemWatcherService, NsfwFileSystemWatcherServerOptions } from './nsfw-watcher/nsfw-filesystem-service';
 import { MessagingService } from '@theia/core/lib/node/messaging/messaging-service';
 import { NodeFileUploadService } from './node-file-upload-service';
 import { NsfwOptions } from './nsfw-watcher/nsfw-options';
@@ -36,6 +36,11 @@ import { FileSystemWatcherServiceDispatcher } from './filesystem-watcher-dispatc
 const SINGLE_THREADED = process.argv.indexOf('--no-cluster') !== -1;
 const NSFW_WATCHER_VERBOSE = process.argv.indexOf('--nsfw-watcher-verbose') !== -1;
 
+export const NsfwFileSystemWatcherProcessOptions = Symbol('NsfwFileSystemWatcherProcessOptions');
+export interface NsfwFileSystemWatcherProcessOptions {
+    entryPoint: string;
+}
+
 export function bindFileSystemWatcherServer(bind: interfaces.Bind, { singleThreaded }: { singleThreaded: boolean } = { singleThreaded: SINGLE_THREADED }): void {
     bind<NsfwOptions>(NsfwOptions).toConstantValue({});
 
@@ -45,27 +50,35 @@ export function bindFileSystemWatcherServer(bind: interfaces.Bind, { singleThrea
     bind(FileSystemWatcherServer).toService(FileSystemWatcherServerClient);
 
     if (singleThreaded) {
-        // Bind and run the watch server in the current process:
-        bind<FileSystemWatcherService>(FileSystemWatcherService).toDynamicValue(ctx => {
+        bind<NsfwFileSystemWatcherServerOptions>(NsfwFileSystemWatcherServerOptions).toDynamicValue(ctx => {
             const logger = ctx.container.get<ILogger>(ILogger);
             const nsfwOptions = ctx.container.get<NsfwOptions>(NsfwOptions);
-            const dispatcher = ctx.container.get<FileSystemWatcherServiceDispatcher>(FileSystemWatcherServiceDispatcher);
-            const server = new NsfwFileSystemWatcherService({
+            return {
                 nsfwOptions,
                 verbose: NSFW_WATCHER_VERBOSE,
                 info: (message, ...args) => logger.info(message, ...args),
                 error: (message, ...args) => logger.error(message, ...args)
-            });
+            };
+        }).inSingletonScope();
+        // Bind and run the watch server in the current process:
+        bind<FileSystemWatcherService>(FileSystemWatcherService).toDynamicValue(ctx => {
+            const watcherOptions = ctx.container.get<NsfwFileSystemWatcherServerOptions>(NsfwFileSystemWatcherServerOptions);
+            const dispatcher = ctx.container.get<FileSystemWatcherServiceDispatcher>(FileSystemWatcherServiceDispatcher);
+            const server = new NsfwFileSystemWatcherService(watcherOptions);
             server.setClient(dispatcher);
             return server;
         }).inSingletonScope();
     } else {
+        bind<NsfwFileSystemWatcherProcessOptions>(NsfwFileSystemWatcherProcessOptions).toConstantValue({
+            entryPoint: path.resolve(__dirname, 'nsfw-watcher')
+        });
         // Run the watch server in a child process.
         // Bind to a proxy forwarding calls to the child process.
         bind<FileSystemWatcherService>(FileSystemWatcherService).toDynamicValue(ctx => {
             const serverName = 'nsfw-watcher';
             const logger = ctx.container.get<ILogger>(ILogger);
             const nsfwOptions = ctx.container.get<NsfwOptions>(NsfwOptions);
+            const processOptions = ctx.container.get<NsfwFileSystemWatcherProcessOptions>(NsfwFileSystemWatcherProcessOptions);
             const ipcConnectionProvider = ctx.container.get<IPCConnectionProvider>(IPCConnectionProvider);
             const dispatcher = ctx.container.get<FileSystemWatcherServiceDispatcher>(FileSystemWatcherServiceDispatcher);
             const proxyFactory = new JsonRpcProxyFactory<FileSystemWatcherService>();
@@ -80,7 +93,7 @@ export function bindFileSystemWatcherServer(bind: interfaces.Bind, { singleThrea
             }
             ipcConnectionProvider.listen({
                 serverName,
-                entryPoint: path.resolve(__dirname, serverName),
+                entryPoint: processOptions.entryPoint,
                 errorHandler: new ConnectionErrorHandler({
                     serverName,
                     logger,
