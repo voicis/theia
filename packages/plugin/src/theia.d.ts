@@ -2645,6 +2645,13 @@ declare module '@theia/plugin' {
      * and the editor then silently adjusts the options to select files.
      */
     export interface OpenDialogOptions {
+
+        /**
+         * Dialog title.
+         * This parameter might be ignored, as not all operating systems display a title on open dialogs (for example, macOS).
+         */
+        title?: string;
+
         /**
          * The resource the dialog shows when opened.
          */
@@ -2687,6 +2694,13 @@ declare module '@theia/plugin' {
      * Options to configure the behaviour of a file save dialog.
      */
     export interface SaveDialogOptions {
+
+        /**
+         * Dialog title.
+         * This parameter might be ignored, as not all operating systems display a title on open dialogs (for example, macOS).
+         */
+        title?: string;
+
         /**
          * The resource the dialog shows when opened.
          */
@@ -5506,7 +5520,7 @@ declare module '@theia/plugin' {
          *
          * **Note:** it is not advised to use `workspace.workspaceFile` to write
          * configuration data into the file.
-         * 
+         *
          * @readonly
          */
         export const workspaceFile: Uri | undefined;
@@ -5760,10 +5774,10 @@ declare module '@theia/plugin' {
 
         /**
          * Find text in files across all [workspace folders] in the workspace
-         * @param query What to search 
-         * @param optionsOrCallback 
-         * @param callbackOrToken 
-         * @param token 
+         * @param query What to search
+         * @param optionsOrCallback
+         * @param callbackOrToken
+         * @param token
          */
         export function findTextInFiles(query: TextSearchQuery, optionsOrCallback: FindTextInFilesOptions | ((result: TextSearchResult) => void),
             callbackOrToken?: CancellationToken | ((result: TextSearchResult) => void), token?: CancellationToken): Promise<TextSearchComplete>
